@@ -1,49 +1,36 @@
 name: ci
 
 on:
-  push:
-    branches:
-      - main
   pull_request:
     branches:
-      - "**"
+      - main
 
 jobs:
-  docker:
-    timeout-minutes: 10
+  notify:
     runs-on: ubuntu-latest
-
     steps:
-      # 빌드 성공 메세지 발송
-      - name: Send Build Success Message
+      - name: Checkout
+        uses: actions/checkout@v2
+      
+      - name: Check for conflicts
+        id: conflicts
+        run: |
+          git fetch origin main:main
+          git fetch origin ${{ github.head_ref }}:${{ github.head_ref }}
+          HAS_CONFLICTS=$(git merge-tree $(git merge-base main ${{ github.head_ref }}) main ${{ github.head_ref }} | grep "<<<<<<<" || true)
+          if [[ -z "$HAS_CONFLICTS" ]]; then
+            echo "No conflicts detected."
+            echo "::set-output name=conflict::false"
+          else
+            echo "Conflicts detected!"
+            echo "::set-output name=conflict::true"
+          fi
+      
+      - name: Send message with Telegram
         uses: appleboy/telegram-action@master
-        if: success()
         with:
           to: ${{ secrets.TELEGRAM_CHAT_ID }}
           token: ${{ secrets.TELEGRAM_TOKEN }}
-          format: markdown
           message: |
-            Author: ${{github.actor}}
-            
-            Status: 😚 **Success**
-            
-            Commit message: ${{ github.event.commits[0].message }}
-            
-            [See changes](https://github.com/${{ github.repository }}/commit/${{github.sha}}) 
-
-      # 빌드 실패 메세지 발송
-      - name: Send Build Success Message
-        uses: appleboy/telegram-action@master
-        if: failure()
-        with:
-          to: ${{ secrets.TELEGRAM_CHAT_ID }}
-          token: ${{ secrets.TELEGRAM_TOKEN }}
-          format: markdown
-          message: |
-            Author: ${{github.actor}}
-            
-            Status: 😱 **Failure**
-            
-            Commit message: ${{ github.event.commits[0].message }}
-            
-            [link](https://github.com/${{ github.repository }}/actions)
+            ${{ github.actor }} has made a PR on main: ${{ github.event.pull_request.title }} ${{ github.event.pull_request.html_url }}
+            Conflict Status: ${{ steps.conflicts.outputs.conflict == 'true' && 'Yes' || 'No' }}
